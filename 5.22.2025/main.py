@@ -16,7 +16,7 @@ from shapely.geometry import Polygon as ShapelyPolygon
 import SimpleITK as sitk
 import csv
 from collections import defaultdict
-from submain import scroll_overlay, extract_contours, scroll_through_slices, scroll_overlay, compute_dvh_from_mask, create_structure_mask_from_contours
+from submain import scroll_overlay, extract_contours, scroll_through_slices, scroll_overlay, compute_dvh_from_mask
 
 # load DICOM series
 def load_dicom_series(path):
