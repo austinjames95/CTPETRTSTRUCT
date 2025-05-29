@@ -2,7 +2,6 @@ from dicompylercore import dicomparser, dvhcalc
 import pydicom
 import os
 import glob
-import sys
 import numpy as np
 import matplotlib.pyplot as plt
 import tempfile
@@ -126,6 +125,8 @@ if rs_dataset and rd_dataset and ct_datasets:
                             abs_dose = stats['bins'][:-1]
                             abs_volume = stats['cumulative']
 
+
+
                             rel_dose = (stats['bins'][:-1] / prescription_dose) * 100
                             rel_volume = (stats['cumulative'] / stats['volume']) * 100
 
@@ -139,7 +140,6 @@ if rs_dataset and rd_dataset and ct_datasets:
                                 f"{stats['volume']:.2f}"
                             ])
 
-                            # DVH data CSV per structure
                             safe_name = struct['name'].replace(' ', '_').replace('/', '_')
                             dvh_path = os.path.join(dvh_data_dir, f"{safe_name}_DVH.csv")
                             with open(dvh_path, mode='w', newline='') as dvh_file:
@@ -147,6 +147,19 @@ if rs_dataset and rd_dataset and ct_datasets:
                                 dvh_writer.writerow(["Dose (Gy)", "Volume (cm3)"])
                                 for d, v in zip(abs_dose, abs_volume):
                                     dvh_writer.writerow([f"{d:.2f}", f"{v:.2f}"])
+                            
+                            dvh_bqml_dir = os.path.join(output_dir, "dvh_data_bqml")
+                            os.makedirs(dvh_bqml_dir, exist_ok=True)
+                            dvh_bqml_path = os.path.join(dvh_bqml_dir, f"{safe_name}_DVH_BQML.csv")
+                            dose_to_bqml_factor = 1e7  
+                            abs_dose_bqml = abs_dose * dose_to_bqml_factor
+
+                            with open(dvh_bqml_path, mode='w', newline='') as bqml_file:
+                                bqml_writer = csv.writer(bqml_file)
+                                bqml_writer.writerow(["Dose (BQ/ML)", "Volume (cm3)"])
+                                for d_bqml, v in zip(abs_dose_bqml, abs_volume):
+                                    bqml_writer.writerow([f"{d_bqml:.2f}", f"{v:.2f}"])
+
                         else:
                             print(f"   Skipped {struct['name']} — No mask found.")
                     except Exception as e:
