@@ -118,7 +118,7 @@ if rs_dataset and rd_dataset:
         writer = csv.writer(f)
         
         # Write header with units information
-        writer.writerow(["# DVH Data - Dose in Gy, Volume in cm³"])
+        writer.writerow(["# DVH Data - Dose in Gy, Volume in cm3"])
         writer.writerow(["# Generated from DICOM RT data"])
         writer.writerow([])  # Empty row for separation
         
@@ -247,11 +247,33 @@ if rs_dataset and rd_dataset:
     ax2.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
     
     plt.tight_layout()
-    
-    # Save the plot
-    plot_path = os.path.join("dvh_data_combined", "DVH_Plot.png")
+
+    plot_path = os.path.join("dvh_data_combined", "DVH_Relative_Plot.png")
     plt.savefig(plot_path, dpi=300, bbox_inches='tight')
     print(f"📊 DVH plot saved to: {plot_path}")
+
+    plt.figure(figsize=(10, 6))
+    for struct_name, volumes in dvh_table.items():
+        if struct_name == "Dose_Gy":
+            continue
+        # Normalize to % structure volume
+        max_volume = max(volumes)
+        if max_volume > 0:
+            percent_volume = [100 * v / max_volume for v in volumes]
+        else:
+            percent_volume = [0 for v in volumes]
+        plt.plot(dvh_table["Dose_Gy"], percent_volume, label=struct_name.replace("_Volume_cm3", ""))
+
+    plt.xlabel('Dose (Gy)', fontsize=12)
+    plt.ylabel('% Structure Volume', fontsize=12)
+    plt.title('Relative DVH (% Structure Volume vs Dose)', fontsize=14, fontweight='bold')
+    plt.grid(True, alpha=0.3)
+    plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+    plt.tight_layout()
+
+    plot_path = os.path.join("dvh_data_combined", "DVH_Relative_Plot.png")
+    plt.savefig(plot_path, dpi=300, bbox_inches='tight')
+    print(f"📊 Relative DVH plot saved to: {plot_path}")
     
     # Show the plot
     plt.show()
