@@ -4,9 +4,8 @@ import os
 import glob
 import numpy as np
 import matplotlib.pyplot as plt
-import SimpleITK as sitk
 import csv
-from submain import load_pet_with_transforms, sample_pet_at_structures_with_transforms, get_dose_resolution
+from submain import load_pet_with_transforms, sample_pet_at_structures_with_transforms, get_dose_resolution, normalize_name
 
 base_dir = r'C:\\Users\\austi\\OneDrive\\Desktop\\COH\\BGRT^P_uPTV5mm4cmSphere_20250110_160d82'
 
