@@ -118,7 +118,7 @@ if rs_dataset and rd_dataset:
         writer = csv.writer(f)
         
         # Write header with units information
-        writer.writerow(["# DVH Data - Dose in Gy, Volume in cm3"])
+        writer.writerow(["# DVH Data - Dose in Gy, Differential Volume in cm3"])
         writer.writerow(["# Generated from DICOM RT data"])
         writer.writerow([])  # Empty row for separation
         
@@ -134,8 +134,12 @@ if rs_dataset and rd_dataset:
                     # Format dose with appropriate precision
                     row.append("{:.6f}".format(dvh_table[h][i]))
                 else:
-                    # Format volume with appropriate precision
-                    row.append("{:.4f}".format(dvh_table[h][i]))
+                    # Differential volume: current - previous (first bin is just the value)
+                    if i == 0:
+                        diff_vol = dvh_table[h][i]
+                    else:
+                        diff_vol = dvh_table[h][i] - dvh_table[h][i-1]
+                    row.append("{:.4f}".format(diff_vol))
             writer.writerow(row)
 
     print(f"\nCombined DVH written to: {combined_path}")
