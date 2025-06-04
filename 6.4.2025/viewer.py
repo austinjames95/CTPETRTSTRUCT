@@ -1,0 +1,370 @@
+import os
+import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib.widgets import Slider, CheckButtons
+import matplotlib.patches as patches
+from dicompylercore import dicomparser
+from scipy import ndimage
+from scipy.ndimage import map_coordinates
+
+def sort_pet_slices(pet_datasets):
+    """Sort PET slices by position for proper visualization"""
+    pet_with_position = []
+    for ds in pet_datasets:
+        try:
+            # Try to get slice position
+            if hasattr(ds, 'ImagePositionPatient'):
+                z_pos = float(ds.ImagePositionPatient[2])
+            elif hasattr(ds, 'SliceLocation'):
+                z_pos = float(ds.SliceLocation)
+            else:
+                z_pos = 0.0
+            pet_with_position.append((z_pos, ds))
+        except:
+            pet_with_position.append((0.0, ds))
+    
+    # Sort by z position
+    pet_with_position.sort(key=lambda x: x[0])
+    return [ds for _, ds in pet_with_position]
+
+def create_pet_volume(pet_datasets):
+    """Create 3D volume from PET slices"""
+    if not pet_datasets:
+        return None, None
+    
+    # Sort slices
+    sorted_pet = sort_pet_slices(pet_datasets)
+    first_slice = sorted_pet[0]
+    
+    # Get dimensions
+    rows = first_slice.Rows
+    cols = first_slice.Columns
+    num_slices = len(sorted_pet)
+    
+    # Initialize volume
+    pet_volume = np.zeros((num_slices, rows, cols))
+    
+    # Fill volume
+    for i, ds in enumerate(sorted_pet):
+        try:
+            # Get pixel data
+            pixel_array = ds.pixel_array.astype(np.float32)
+            
+            # Apply rescale slope and intercept if available
+            if hasattr(ds, 'RescaleSlope') and hasattr(ds, 'RescaleIntercept'):
+                pixel_array = pixel_array * ds.RescaleSlope + ds.RescaleIntercept
+            
+            pet_volume[i] = pixel_array
+        except Exception as e:
+            print(f"Error processing PET slice {i}: {e}")
+            pet_volume[i] = np.zeros((rows, cols))
+    
+    return pet_volume, sorted_pet
+
+def create_dose_volume(rd_dataset, pet_volume_shape):
+    """Create 3D dose volume from RT Dose dataset with proper alignment"""
+    if not rd_dataset:
+        return None
+    
+    try:
+        # Get dose array
+        dose_array = rd_dataset.pixel_array.astype(np.float32)
+        
+        # Apply dose grid scaling
+        if hasattr(rd_dataset, 'DoseGridScaling'):
+            dose_array *= float(rd_dataset.DoseGridScaling)
+        
+        print(f"Original dose shape: {dose_array.shape}")
+        print(f"Target PET shape: {pet_volume_shape}")
+        
+        # Handle dimension mismatch by resizing dose to match PET
+        if dose_array.shape != pet_volume_shape:
+            print("Resizing dose volume to match PET dimensions...")
+            
+            # Calculate zoom factors
+            zoom_factors = (
+                pet_volume_shape[0] / dose_array.shape[0],
+                pet_volume_shape[1] / dose_array.shape[1], 
+                pet_volume_shape[2] / dose_array.shape[2]
+            )
+            
+            print(f"Zoom factors: {zoom_factors}")
+            
+            # Resize using scipy
+            dose_array = ndimage.zoom(dose_array, zoom_factors, order=1)  # Linear interpolation
+            print(f"Resized dose shape: {dose_array.shape}")
+        
+        return dose_array
+        
+    except Exception as e:
+        print(f"Error creating dose volume: {e}")
+        return None
+
+def get_structure_contours(rs_dataset, structures, pet_datasets):
+    """Extract structure contours for each slice"""
+    if not rs_dataset or not structures:
+        return {}
+    
+    dp_struct = dicomparser.DicomParser(rs_dataset)
+    structure_contours = {}
+    
+    for sid, struct in structures.items():
+        try:
+            # Get structure data
+            structure_data = dp_struct.GetStructureCoordinates(sid)
+            if not structure_data:
+                continue
+                
+            structure_contours[sid] = {
+                'name': struct['name'],
+                'color': struct.get('color', [255, 0, 0]),  # Default to red
+                'contours': structure_data
+            }
+        except Exception as e:
+            print(f"Error getting contours for {struct['name']}: {e}")
+    
+    return structure_contours
+
+class InteractivePETStructureViewer:
+    def __init__(self, pet_volume, dose_volume, structure_contours, sorted_pet):
+        self.pet_volume = pet_volume
+        self.dose_volume = dose_volume
+        self.structure_contours = structure_contours
+        self.sorted_pet = sorted_pet
+        self.current_slice = 0
+        self.visible_structures = {sid: True for sid in structure_contours.keys()}
+        self.show_dose = True
+        self.show_pet = True
+        
+        self.setup_figure()
+        
+    def setup_figure(self):
+        """Setup the interactive figure"""
+        self.fig = plt.figure(figsize=(16, 10))
+        
+        # Main image axis
+        self.ax_main = plt.axes([0.1, 0.3, 0.6, 0.6])
+        
+        # Slider for slice selection
+        ax_slice = plt.axes([0.1, 0.1, 0.6, 0.03])
+        self.slider_slice = Slider(
+            ax_slice, 'Slice', 0, self.pet_volume.shape[0] - 1,
+            valinit=0, valfmt='%d'
+        )
+        self.slider_slice.on_changed(self.update_slice)
+        
+        # Checkboxes for structure visibility
+        ax_check = plt.axes([0.75, 0.3, 0.2, 0.6])
+        
+        # Create checkbox labels and initial states
+        structure_names = []
+        
+        # Add PET and Dose toggles first
+        structure_names.extend(['PET Data', 'Dose Data'])
+        
+        self.check_buttons = CheckButtons(ax_check, structure_names)
+        self.check_buttons.on_clicked(self.toggle_visibility)
+
+        self.update_display()
+        
+    def toggle_visibility(self, label):
+        if label == 'PET Data':
+            self.show_pet = not self.show_pet
+        elif label == 'Dose Data':
+            self.show_dose = not self.show_dose
+        self.update_display()
+        
+    def update_slice(self, val):
+        """Update the displayed slice"""
+        self.current_slice = int(self.slider_slice.val)
+        self.update_display()
+        
+    def update_display(self):
+        """Update the main display"""
+        self.ax_main.clear()
+        
+        # Get current slice data
+        current_pet = self.pet_volume[self.current_slice]
+        
+        # Display PET data as base layer
+        if self.show_pet:
+            self.ax_main.imshow(current_pet, cmap='gray', alpha=0.7)
+        
+        # Overlay dose data
+        if self.show_dose and self.dose_volume is not None:
+            current_dose = self.dose_volume[self.current_slice]
+            # Only show dose where it's non-zero
+            dose_mask = current_dose > 0
+            if np.any(dose_mask):
+                self.ax_main.imshow(
+                    current_dose, cmap='plasma', alpha=0.6,
+                    vmin=0, vmax=np.max(self.dose_volume) * 0.8
+                )
+    
+    def show(self):
+        """Display the interactive viewer"""
+        plt.show()
+
+def visualize_pet_data(pet_volume, pet_datasets, rd_dataset=None, rs_dataset=None, structures=None, output_dir="dvh_data_combined"):
+    """Create comprehensive PET visualizations with structure overlay"""
+    if pet_volume is None:
+        print("No PET data to visualize")
+        return
+    
+    print("\nGenerating PET visualizations...")
+    
+    # Get basic statistics
+    pet_max = np.max(pet_volume)
+    pet_min = np.min(pet_volume)
+    pet_mean = np.mean(pet_volume)
+    pet_std = np.std(pet_volume)
+    
+    print(f"PET Statistics:")
+    print(f"  Min: {pet_min:.2f}")
+    print(f"  Max: {pet_max:.2f}")
+    print(f"  Mean: {pet_mean:.2f}")
+    print(f"  Std: {pet_std:.2f}")
+    
+    # Create dose volume if available
+    dose_volume = None
+    if rd_dataset:
+        dose_volume = create_dose_volume(rd_dataset, pet_volume.shape)
+    
+    # Get structure contours if available
+    structure_contours = {}
+    if rs_dataset and structures:
+        structure_contours = get_structure_contours(rs_dataset, structures, pet_datasets)
+    
+    # Create interactive viewer
+    if structure_contours or dose_volume is not None:
+        print("\nLaunching interactive PET + Structure + Dose viewer...")
+        viewer = InteractivePETStructureViewer(
+            pet_volume, dose_volume, structure_contours, 
+            sort_pet_slices(pet_datasets)
+        )
+        viewer.show()
+
+    slice_max_activity = np.max(pet_volume, axis=(1, 2))
+    hottest_slice_idx = np.argmax(slice_max_activity)
+    
+    plt.figure(figsize=(12, 5))
+    
+    plt.subplot(1, 2, 1)
+    plt.imshow(pet_volume[hottest_slice_idx], cmap='hot')
+    plt.title(f'Hottest Slice #{hottest_slice_idx+1}\nMax Activity: {slice_max_activity[hottest_slice_idx]:.2f}')
+    plt.colorbar(shrink=0.8)
+    plt.axis('off')
+    
+    # Thresholded view (show only high activity regions)
+    threshold = pet_mean + 2 * pet_std
+    plt.subplot(1, 2, 2)
+    thresholded = pet_volume[hottest_slice_idx].copy()
+    thresholded[thresholded < threshold] = 0
+    plt.imshow(thresholded, cmap='hot')
+    plt.title(f'High Activity Regions\n(Threshold: {threshold:.2f})')
+    plt.colorbar(shrink=0.8)
+    plt.axis('off')
+    
+    plt.tight_layout()
+    hotspot_path = os.path.join(output_dir, "PET_Hotspot_Analysis.png")
+    plt.savefig(hotspot_path, dpi=300, bbox_inches='tight')
+    print(f"PET hotspot analysis saved to: {hotspot_path}")
+    plt.show()
+    
+    # 5. Slice-by-slice activity profile
+    plt.figure(figsize=(12, 6))
+    
+    slice_mean_activity = np.mean(pet_volume, axis=(1, 2))
+    slice_numbers = range(1, len(slice_mean_activity) + 1)
+    
+    plt.subplot(1, 2, 1)
+    plt.plot(slice_numbers, slice_mean_activity, 'b-o', markersize=4)
+    plt.xlabel('Slice Number')
+    plt.ylabel('Mean Activity')
+    plt.title('Mean Activity per Slice')
+    plt.grid(True, alpha=0.3)
+    
+    plt.subplot(1, 2, 2)
+    plt.plot(slice_numbers, slice_max_activity, 'r-o', markersize=4)
+    plt.xlabel('Slice Number')
+    plt.ylabel('Max Activity')
+    plt.title('Maximum Activity per Slice')
+    plt.grid(True, alpha=0.3)
+    
+    plt.tight_layout()
+    profile_path = os.path.join(output_dir, "PET_Activity_Profile.png")
+    plt.savefig(profile_path, dpi=300, bbox_inches='tight')
+    print(f"PET activity profile saved to: {profile_path}")
+    plt.show()
+    
+    return {
+        'volume': pet_volume,
+        'statistics': {
+            'min': pet_min,
+            'max': pet_max,
+            'mean': pet_mean,
+            'std': pet_std
+        },
+        'hottest_slice': hottest_slice_idx,
+        'slice_activities': {
+            'mean': slice_mean_activity,
+            'max': slice_max_activity
+        }
+    }
+
+def resample_pet_to_dose(pet_volume, pet_datasets, dose_origin, dose_spacing, dose_shape):
+    """Resample PET volume into dose coordinate space using trilinear interpolation"""
+    if pet_volume is None or len(pet_datasets) == 0:
+        return None
+
+    # PET metadata
+    pet_origin = np.array(pet_datasets[0].ImagePositionPatient, dtype=np.float32)
+    pet_spacing = list(map(float, pet_datasets[0].PixelSpacing))  # [dy, dx]
+    pet_thickness = float(pet_datasets[0].SliceThickness)
+    pet_spacing.append(pet_thickness)  # [dy, dx, dz]
+
+    # Build PET grid coordinate system
+    pet_inv_spacing = np.array([1/s for s in pet_spacing])
+
+    # Create 3D grid of points in dose space
+    zi, yi, xi = np.meshgrid(
+        np.arange(dose_shape[0]),
+        np.arange(dose_shape[1]),
+        np.arange(dose_shape[2]),
+        indexing='ij'
+    )
+
+    # Convert dose voxel indices to world coordinates
+    dose_x = xi * dose_spacing[1] + dose_origin[0]
+    dose_y = yi * dose_spacing[0] + dose_origin[1]
+    dose_z = zi * dose_spacing[2] + dose_origin[2]
+
+    # Convert world coordinates to PET voxel indices
+    pet_coords_x = (dose_x - pet_origin[0]) / pet_spacing[1]
+    pet_coords_y = (dose_y - pet_origin[1]) / pet_spacing[0]
+    pet_coords_z = (dose_z - pet_origin[2]) / pet_spacing[2]
+
+    # Convert world coordinates to PET voxel indices
+    pet_coords = np.array([pet_coords_z, pet_coords_y, pet_coords_x])
+
+    # Interpolate PET data at these coordinates
+    resampled_pet = map_coordinates(
+        pet_volume, 
+        pet_coords, 
+        order=1,  # linear interpolation
+        mode='nearest'
+    )
+
+    return resampled_pet
+
+def get_dose_grid_coordinates(rd_dataset):
+    origin = np.array(rd_dataset.ImagePositionPatient, dtype=np.float32)  # 3D origin
+    spacing = list(map(float, rd_dataset.PixelSpacing))  # [dy, dx]
+    slice_thickness = float(rd_dataset.GridFrameOffsetVector[1] - rd_dataset.GridFrameOffsetVector[0]) \
+        if hasattr(rd_dataset, 'GridFrameOffsetVector') and len(rd_dataset.GridFrameOffsetVector) > 1 \
+        else float(rd_dataset.SliceThickness)
+
+    spacing.append(slice_thickness)  # [dy, dx, dz]
+
+    shape = rd_dataset.pixel_array.shape  # [z, y, x]
+    return origin, spacing, shape
