@@ -32,12 +32,12 @@ Two-panel line plot:
 
 We're planning to extend this analysis with ROI-based sampling and reporting:
 
-* [ ] Extract PET activity values **within each structure/ROI** (e.g., GTV, PTV).
-* [ ] Export PET statistics **per structure** to CSV:
+* Extract PET activity values **within each structure/ROI** (e.g., GTV, PTV).
+* Export PET statistics **per structure** to CSV:
 
   * Mean, max, and standard deviation of activity
   * Volume and fraction of active voxels
-* [ ] Enable structure-specific overlays and measurements during interactive review
+* Enable structure-specific overlays and measurements during interactive review
 
 ---
 
