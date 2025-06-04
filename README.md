@@ -2,7 +2,7 @@
 
 ## Overview
 
-This project supports the visualization and analysis of PET (Positron Emission Tomography) and RTDOSE data from DICOM files. It includes features for PET-Dose overlay visualization, hotspot analysis, and activity profiling across slices.
+This project supports the visualization and analysis of PET and RTDOSE data from DICOM files. It includes features for PET-Dose overlay visualization, hotspot analysis, and activity profiling across slices.
 
 ---
 
