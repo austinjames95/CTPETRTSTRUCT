@@ -1,0 +1,29 @@
+PET Analysis Summary
+===================
+
+Dataset Information:
+Number of slices: 241
+Volume dimensions: (155, 512, 512)
+Activity units: BQML
+Voxel volume: 0.033600 mL
+Total volume: 1365245.8870 mL
+Active volume: 119158.0263 mL
+Active fraction: 0.087280
+
+Activity Statistics (BQML):
+Min activity: -19779.1973
+Max activity: 413914.7812
+Mean activity: 4.8049
+Std deviation: 774.7773
+Hottest slice: 95
+
+Alignment Info:
+PET aligned to dose grid: Yes
+Final aligned shape: (155, 512, 512)
+
+Generated Files:
+- PET_Activity_Analysis_Summary.csv: Main activity analysis
+- PET_Slice_Analysis.csv: Slice-by-slice analysis
+- PET_Structure_Analysis.csv: Structure-specific analysis (placeholder)
+- PET_Hotspot_Analysis.png: Visual hotspot analysis
+- PET_Activity_Profile.png: Activity profile plots
