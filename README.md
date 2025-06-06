@@ -55,8 +55,6 @@ Two-panel line plot:
 * **Right**: Maximum PET activity per slice
   Useful for evaluating activity trends throughout the volume.
 
----
-
 ## Next Steps
 
 I am planning to extend this analysis with ROI-based sampling and reporting:
@@ -67,7 +65,7 @@ I am planning to extend this analysis with ROI-based sampling and reporting:
   * Mean, max, and standard deviation of activity
   * Volume and fraction of active voxels
 * Enable structure-specific overlays and measurements during interactive review
-
+* 
 ---
 
 ## How to Use
