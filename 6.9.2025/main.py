@@ -5,7 +5,7 @@ import glob
 import numpy as np
 import matplotlib.pyplot as plt
 import csv
-from viewer import visualize_pet_data, create_pet_volume, get_ct_grid_coordinates, resample_pet_to_ct, create_structure_masks, export_cumulative_pet_histogram
+from viewer import visualize_pet_data, create_pet_volume, get_ct_grid_coordinates, resample_pet_to_ct, create_structure_masks, export_cumulative_pet_histogram, extract_affine_transform_from_reg
 
 def get_dose_resolution(rd_dataset):
     dose_array = rd_dataset.pixel_array * rd_dataset.DoseGridScaling
@@ -69,7 +69,12 @@ if pet_datasets:
             print(f"Original PET shape: {pet_volume.shape}")
 
             ct_origin, ct_spacing, ct_shape = get_ct_grid_coordinates(ct_datasets)
-            pet_volume = resample_pet_to_ct(pet_datasets, ct_datasets, pet_volume)
+            reg_transform = None
+            if reg_dataset:
+                reg_transform = extract_affine_transform_from_reg(reg_dataset)
+
+            pet_volume = resample_pet_to_ct(pet_datasets, ct_datasets, pet_volume, reg_transform=reg_transform)
+
             print(f"Resampled PET shape (CT grid): {pet_volume.shape}")
     else:
         pet_volume, sorted_pet = create_pet_volume(pet_datasets)
