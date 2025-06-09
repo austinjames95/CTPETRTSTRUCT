@@ -187,7 +187,7 @@ class InteractivePETStructureViewer:
         structure_names = []
         
         # Add PET and Dose toggles first
-        structure_names.extend(['CT Data', 'PET Data', 'Dose Data'])
+        structure_names.extend(['CT Data', 'PET Data'])
         init_states = [self.show_ct, self.show_pet]
         
         self.check_buttons = CheckButtons(ax_check, structure_names, init_states)
@@ -395,7 +395,7 @@ def get_ct_grid_coordinates(ct_datasets):
     shape = (len(sorted_ct), sorted_ct[0].Rows, sorted_ct[0].Columns)
     return origin, spacing, shape
 
-def resample_pet_to_ct(pet_datasets, ct_datasets, pet_volume):
+def resample_pet_to_ct(pet_datasets, ct_datasets, pet_volume, reg_transform=None):
     # Sort datasets by Z position
     pet_sorted = sorted(pet_datasets, key=lambda x: float(x.ImagePositionPatient[2]))
     ct_sorted = sorted(ct_datasets, key=lambda x: float(x.ImagePositionPatient[2]))
@@ -457,13 +457,15 @@ def resample_pet_to_ct(pet_datasets, ct_datasets, pet_volume):
     resampler.SetReferenceImage(ct_ref)
     resampler.SetInterpolator(sitk.sitkLinear)
     resampler.SetDefaultPixelValue(0)
+    if reg_transform is not None:
+        resampler.SetTransform(reg_transform)
+    else:
+        resampler.SetTransform(sitk.Transform(3, sitk.sitkIdentity))
     resampled_pet = resampler.Execute(pet_img)
 
     return sitk.GetArrayFromImage(resampled_pet)
 
-def export_cumulative_pet_histogram(pet_volume, structure_masks, structures, voxel_volume_ml, output_dir):
-    """Export cumulative PET histogram in both absolute and relative units"""
-    
+def export_cumulative_pet_histogram(pet_volume, structure_masks, structures, voxel_volume_ml, output_dir):    
     # Get PET resolution with safety limits
     pet_step, max_pet = get_pet_resolution(pet_volume)
     
@@ -630,3 +632,28 @@ def create_structure_masks(structures, rs_dataset, ct_datasets, volume_shape):
 
         masks[sid] = mask
     return masks
+
+def extract_affine_transform_from_reg(reg_dataset):
+    try:
+        matrix_seq = reg_dataset[0x0070, 0x0308].value[0]  # RegistrationSequence -> Item 0
+        matrix_data = matrix_seq[0x3006, 0x00C6].value      # FrameOfReferenceTransformationMatrix
+
+        if len(matrix_data) != 16:
+            print("Expected 16 values for 4x4 matrix, got:", len(matrix_data))
+            return None
+
+        # Convert 4x4 to rotation (3x3) + translation (3)
+        matrix_np = np.array(matrix_data).reshape(4, 4)
+        rotation = matrix_np[:3, :3].flatten().tolist()
+        translation = matrix_np[:3, 3].tolist()
+
+        transform = sitk.AffineTransform(3)
+        transform.SetMatrix(rotation)
+        transform.SetTranslation(translation)
+
+        print("REG matrix extracted and converted to SimpleITK transform.")
+        return transform
+
+    except Exception as e:
+        print(f"Failed to extract transform from REG dataset: {e}")
+        return None
