@@ -396,50 +396,70 @@ def get_ct_grid_coordinates(ct_datasets):
     return origin, spacing, shape
 
 def resample_pet_to_ct(pet_datasets, ct_datasets, pet_volume):
-    # Sort PET and CT by Z
+    # Sort datasets by Z position
     pet_sorted = sorted(pet_datasets, key=lambda x: float(x.ImagePositionPatient[2]))
     ct_sorted = sorted(ct_datasets, key=lambda x: float(x.ImagePositionPatient[2]))
 
-    # Create SimpleITK images
-    pet_img = sitk.GetImageFromArray(pet_volume.astype(np.float32))
-    ct_shape = (ct_sorted[0].Columns, ct_sorted[0].Rows, len(ct_sorted))
+    # --- PET metadata ---
+    pet_spacing = list(map(float, pet_sorted[0].PixelSpacing))  # [dy, dx]
+    if len(pet_sorted) > 1:
+        z1 = float(pet_sorted[0].ImagePositionPatient[2])
+        z2 = float(pet_sorted[1].ImagePositionPatient[2])
+        dz_pet = abs(z2 - z1)
+    else:
+        dz_pet = float(pet_sorted[0].SliceThickness)
 
-    # PET metadata
-    pet_spacing = list(map(float, pet_sorted[0].PixelSpacing))
-    pet_spacing.append(float(pet_sorted[0].SliceThickness))
-
+    pet_spacing.append(dz_pet)
     pet_origin = list(map(float, pet_sorted[0].ImagePositionPatient))
-    pet_origin[2] += 34.0
-    pet_direction = list(map(float, pet_sorted[0].ImageOrientationPatient))
-    pet_direction.extend([0, 0, 1])  # Append k-axis (simplified)
 
-    pet_img.SetSpacing(pet_spacing)
+    # Correct orientation using cross product
+    iop = pet_sorted[0].ImageOrientationPatient
+    axis_x = np.array(iop[:3])
+    axis_y = np.array(iop[3:])
+    axis_z = np.cross(axis_x, axis_y)
+    direction = np.concatenate([axis_x, axis_y, axis_z]).tolist()
+
+    pet_img = sitk.GetImageFromArray(pet_volume.astype(np.float32))  # Z,Y,X
+    pet_img.SetSpacing([pet_spacing[1], pet_spacing[0], pet_spacing[2]])  # [dx, dy, dz]
     pet_img.SetOrigin(pet_origin)
-    pet_img.SetDirection(pet_direction[:9])  # flattened 3x3
+    pet_img.SetDirection(direction)
 
-    # CT metadata
-    ct_spacing = list(map(float, ct_sorted[0].PixelSpacing))
-    ct_spacing.append(float(ct_sorted[0].SliceThickness))
+    # --- CT metadata ---
+    ct_shape = (ct_sorted[0].Columns, ct_sorted[0].Rows, len(ct_sorted))
+    ct_spacing = list(map(float, ct_sorted[0].PixelSpacing))  # [dy, dx]
+    if len(ct_sorted) > 1:
+        z1_ct = float(ct_sorted[0].ImagePositionPatient[2])
+        z2_ct = float(ct_sorted[1].ImagePositionPatient[2])
+        dz_ct = abs(z2_ct - z1_ct)
+    else:
+        dz_ct = float(ct_sorted[0].SliceThickness)
+
+    ct_spacing.append(dz_ct)
     ct_origin = list(map(float, ct_sorted[0].ImagePositionPatient))
-    ct_direction = list(map(float, ct_sorted[0].ImageOrientationPatient))
-    ct_direction.extend([0, 0, 1])  # k-axis placeholder
+    iop_ct = ct_sorted[0].ImageOrientationPatient
+    axis_x_ct = np.array(iop_ct[:3])
+    axis_y_ct = np.array(iop_ct[3:])
+    axis_z_ct = np.cross(axis_x_ct, axis_y_ct)
+    ct_direction = np.concatenate([axis_x_ct, axis_y_ct, axis_z_ct]).tolist()
+    
+    print("\nPET origin Z:", pet_origin[2])
+    print("CT origin Z:", ct_origin[2])
+    print("PET dz:", pet_spacing[2])
+    print("CT dz:", ct_spacing[2])
 
-    # Create reference CT image
     ct_ref = sitk.Image(ct_shape, sitk.sitkFloat32)
-    ct_ref.SetSpacing(ct_spacing)
+    ct_ref.SetSpacing([ct_spacing[1], ct_spacing[0], ct_spacing[2]])
     ct_ref.SetOrigin(ct_origin)
-    ct_ref.SetDirection(ct_direction[:9])
+    ct_ref.SetDirection(ct_direction)
 
-    # Resample PET into CT space
+    # --- Resample PET to CT grid ---
     resampler = sitk.ResampleImageFilter()
     resampler.SetReferenceImage(ct_ref)
     resampler.SetInterpolator(sitk.sitkLinear)
     resampler.SetDefaultPixelValue(0)
-    
-    pet_resampled_sitk = resampler.Execute(pet_img)
-    pet_resampled_np = sitk.GetArrayFromImage(pet_resampled_sitk)
+    resampled_pet = resampler.Execute(pet_img)
 
-    return pet_resampled_np
+    return sitk.GetArrayFromImage(resampled_pet)
 
 def export_cumulative_pet_histogram(pet_volume, structure_masks, structures, voxel_volume_ml, output_dir):
     """Export cumulative PET histogram in both absolute and relative units"""
@@ -602,46 +622,6 @@ def create_structure_masks(structures, rs_dataset, ct_datasets, volume_shape):
                     continue
                 x = [(pt[0] - origin[0]) / spacing[0] for pt in pts]
                 y = [(pt[1] - origin[1]) / spacing[1] for pt in pts]
-                poly = Path(np.vstack((x, y)).T)
-                grid_x, grid_y = np.meshgrid(np.arange(volume_shape[2]), np.arange(volume_shape[1]))
-                points = np.vstack((grid_x.ravel(), grid_y.ravel())).T
-                mask2d = poly.contains_points(points).reshape((volume_shape[1], volume_shape[2]))
-                mask[k] |= mask2d
-
-        masks[sid] = mask
-    return masks
-
-def create_structure_masks(structures, rs_dataset, ct_datasets, volume_shape):
-    rt = dicomparser.DicomParser(rs_dataset)
-    first_ct = ct_datasets[0]
-    origin = np.array(first_ct.ImagePositionPatient)
-    spacing = list(map(float, first_ct.PixelSpacing))
-    thickness = float(first_ct.SliceThickness)
-    spacing.append(thickness)
-
-    z_positions = sorted([float(ds.ImagePositionPatient[2]) for ds in ct_datasets])
-    masks = {}
-
-    for sid, struct in structures.items():
-        coords = rt.GetStructureCoordinates(sid)
-        if not coords:
-            continue
-
-        mask = np.zeros(volume_shape, dtype=bool)
-        for z_str, contours in coords.items():
-            z = float(z_str)
-            try:
-                k = np.argmin(np.abs(np.array(z_positions) - z))
-            except:
-                continue
-
-            for contour in contours:
-                pts = contour['data']
-                if len(pts) < 3:
-                    continue
-                x = [(pt[0] - origin[0]) / spacing[0] for pt in pts]
-                y = [(pt[1] - origin[1]) / spacing[1] for pt in pts]
-
                 poly = Path(np.vstack((x, y)).T)
                 grid_x, grid_y = np.meshgrid(np.arange(volume_shape[2]), np.arange(volume_shape[1]))
                 points = np.vstack((grid_x.ravel(), grid_y.ravel())).T
