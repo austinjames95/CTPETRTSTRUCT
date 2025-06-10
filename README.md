@@ -19,6 +19,8 @@ Added code that automatically adjusts the origin shift (z-axis) from the pet ima
 
 Removed the hardcoded z axis origin shift of += 34mm
 
+## Beta Release is not avaliable
+
 ---
 
 ## Update: June 6, 2025
