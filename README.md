@@ -6,6 +6,21 @@ This project supports the visualization and analysis of PET and RTDOSE data from
 
 ---
 
+## Update: June 9, 2025
+
+### New Additions
+#### 'CumulativePVH_AllStructures_RelativeUnits.csv'
+Exports BQML data as a number from 0-1.
+
+## Self Adjusting Origin Shift
+Added code that automatically adjusts the origin shift (z-axis) from the pet images
+
+## Removals
+
+Removed the hardcoded z axis origin shift of += 34mm
+
+---
+
 ## Update: June 6, 2025
 
 ### New Additions
