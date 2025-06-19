@@ -5,7 +5,7 @@ import numpy as np
 from config import given_pvh_dir, given_dvh_dir
 
 def compare_relative_dvh():
-    df = pd.read_csv(given_dvh_dir, header=None)
+    df = pd.read_csv(r'GivenData\absolute_dvh_export.csv', header=None)
 
     blank_indices = df.index[df.isnull().all(axis=1)].tolist()
 
@@ -19,7 +19,7 @@ def compare_relative_dvh():
     for i in range(len(split_points) - 1):
         start = split_points[i]
         end = split_points[i + 1]
-        chunk = df.iloc[start:end].dropna(how='all')
+        chunk = df.iloc[start:end].dropna(how='all') 
         if not chunk.empty:
             sections.append(chunk.reset_index(drop=True))
 
@@ -27,13 +27,13 @@ def compare_relative_dvh():
 
     for section in sections:
         if section.shape[0] < 3:
-            continue  
+            continue 
 
         structure_name = str(section.iloc[0, 0]).strip()
         
         dose_row_index = section[section[0].astype(str).str.upper() == "GY"].index
         if dose_row_index.empty:
-            continue  
+            continue 
         
         header_idx = dose_row_index[0]
         data_rows = section.iloc[header_idx + 1:]
@@ -45,6 +45,7 @@ def compare_relative_dvh():
             data_rows["GY"] = pd.to_numeric(data_rows["GY"], errors='coerce')
             data_rows["cm3"] = pd.to_numeric(data_rows["cm3"], errors='coerce')
             data_rows = data_rows.dropna()
+
             data_rows = data_rows.sort_values(by="GY").reset_index(drop=True)
             total_volume = data_rows["cm3"].sum()
             data_rows["CumulativeVolume_cm3"] = data_rows["cm3"][::-1].cumsum()[::-1]
@@ -82,13 +83,13 @@ def compare_relative_dvh():
             if rel_col not in ref_df.columns:
                 print(f"Structure '{name}' not found in DICOM DVH. Skipping diff.")
                 continue
+
             interp = np.interp(dose_ref, cdvh["GY"], cdvh["RelativeCumVolume"], left=np.nan, right=np.nan)
             ref_values = ref_df[rel_col].values
             difference = interp - ref_values
 
             diff_output[f"{name}_Diff"] = difference
 
-        # Save the difference as a CSV
         diff_df = pd.DataFrame(diff_output)
         diff_path = os.path.join("generated_data/DVH", "DVH_Differences.csv")
         diff_df.to_csv(diff_path, index=False)
@@ -235,4 +236,4 @@ def plot_dvh_and_pvh_differences():
         plt.savefig(pvh_differences_path, dpi=300, bbox_inches='tight')
         plt.show()
 
-plot_dvh_and_pvh_differences()
+compare_relative_dvh()
