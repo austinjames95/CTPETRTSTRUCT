@@ -33,11 +33,11 @@ def compare_relative_dvh():
         
         dose_row_index = section[section[0].astype(str).str.upper() == "GY"].index
         if dose_row_index.empty:
-            continue
+            continue  
         
         header_idx = dose_row_index[0]
         data_rows = section.iloc[header_idx + 1:]
-        data_rows = data_rows.iloc[:, :2] 
+        data_rows = data_rows.iloc[:, :2]  
         data_rows.columns = ["GY", "cm3"]
         data_rows = data_rows.dropna()
         
@@ -45,7 +45,6 @@ def compare_relative_dvh():
             data_rows["GY"] = pd.to_numeric(data_rows["GY"], errors='coerce')
             data_rows["cm3"] = pd.to_numeric(data_rows["cm3"], errors='coerce')
             data_rows = data_rows.dropna()
-
             data_rows = data_rows.sort_values(by="GY").reset_index(drop=True)
             total_volume = data_rows["cm3"].sum()
             data_rows["CumulativeVolume_cm3"] = data_rows["cm3"][::-1].cumsum()[::-1]
@@ -67,6 +66,7 @@ def compare_relative_dvh():
     plt.tight_layout()
     rel_plot_path = os.path.join("generated_data/DVH", "CDVH_Converted.png")
     plt.savefig(rel_plot_path, dpi=300, bbox_inches='tight')
+    plt.show()
 
     print(f" Relative DVH plot saved to: {rel_plot_path}")
 
@@ -82,13 +82,13 @@ def compare_relative_dvh():
             if rel_col not in ref_df.columns:
                 print(f"Structure '{name}' not found in DICOM DVH. Skipping diff.")
                 continue
-
             interp = np.interp(dose_ref, cdvh["GY"], cdvh["RelativeCumVolume"], left=np.nan, right=np.nan)
             ref_values = ref_df[rel_col].values
             difference = interp - ref_values
 
             diff_output[f"{name}_Diff"] = difference
 
+        # Save the difference as a CSV
         diff_df = pd.DataFrame(diff_output)
         diff_path = os.path.join("generated_data/DVH", "DVH_Differences.csv")
         diff_df.to_csv(diff_path, index=False)
@@ -195,3 +195,44 @@ def compare_relative_pvh():
     except Exception as e:
         print(f"Error comparing to reference PVH: {e}")
 
+def plot_dvh_and_pvh_differences():
+    dvh_diff_path = "generated_data/DVH/DVH_Differences.csv"
+    pvh_diff_path = "generated_data/PVH/PVH_Differences.csv"
+
+    dvh_exists = os.path.exists(dvh_diff_path)
+    pvh_exists = os.path.exists(pvh_diff_path)
+
+    dvh_df = pd.read_csv(dvh_diff_path) if dvh_exists else None
+    pvh_df = pd.read_csv(pvh_diff_path) if pvh_exists else None
+
+    if dvh_df is not None:
+        for column in dvh_df.columns:
+            if column != "GY":
+                plt.plot(dvh_df["GY"], dvh_df[column], label=column)
+
+        plt.xlabel("Dose (Gy)")
+        plt.ylabel("Difference in Relative Volume")
+        plt.title("DVH Differences")
+        plt.grid(True, alpha=0.3)
+        plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+        plt.tight_layout()
+        dvh_differences_path = os.path.join("generated_data/DVH", "DVH_Differences.png")
+        plt.savefig(dvh_differences_path, dpi=300, bbox_inches='tight')
+        plt.show()
+
+    if pvh_df is not None:
+        bq_col = pvh_df.columns[0]
+        for column in pvh_df.columns[1:]:
+            plt.plot(pvh_df[bq_col], pvh_df[column], label=column)
+
+        plt.xlabel("PET Activity (BQML)")
+        plt.ylabel("Difference in Relative Volume")
+        plt.title("PVH Differences")
+        plt.grid(True, alpha=0.3)
+        plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+        plt.tight_layout()
+        pvh_differences_path = os.path.join("generated_data/PVH", "PVH_Differences.png")
+        plt.savefig(pvh_differences_path, dpi=300, bbox_inches='tight')
+        plt.show()
+
+plot_dvh_and_pvh_differences()
